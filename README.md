@@ -68,4 +68,10 @@ npm run build
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
   `frontend/src/data/seed.ts`。
 - 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
+- 林区道路的巡检、施工、人工封闭统一走 `frontend/src/data/road-rules.ts` 的共用通行规则：
+  更严格的结论优先，同级冲突施工优先于巡检，人工封闭按最严格结论处理；每次提交只追加
+  `通行历史`，不覆盖旧档案。档案从旧字段迁移到 v2 由 `frontend/src/data/road-archive.ts`
+  完成，存量道路按采集顺序回填 `采集序号`，旧字段原样保留。同一道路的并发提交按 `版本号`
+  做乐观校验，只有基于最新版本的提交生效。道路结论变化后 `local-service.ts` 会自动重算
+  引用到这些道路的巡护路线（写回 `路线重算结果`）。
 - 想回到初始数据：清掉浏览器里 `forest-fire-patrol:entries` 这一项，或调用 `resetModule(模块)`。

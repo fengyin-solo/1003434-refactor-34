@@ -3,7 +3,7 @@
     <header class="page-head">
       <div>
         <h2>林区道路管理</h2>
-        <p class="page-desc">维护林区道路，围绕道路编号、道路名称、起点位置、终点位置做登记、筛选与状态流转。</p>
+        <p class="page-desc">维护林区道路，围绕道路编号、道路名称、起点位置、终点位置做登记、筛选与状态流转；通行结论由巡检、施工、人工封闭共用的通行规则判定。</p>
       </div>
       <div class="page-actions">
         <button class="btn primary" type="button" @click="openCreate">登记林区道路</button>
@@ -82,7 +82,7 @@ import {
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('forestroad')
-const columns = ["道路编号", "道路名称", "起点位置", "终点位置", "道路等级", "通行宽度", "最近巡检日", "通行状态"]
+const columns = ["道路编号", "道路名称", "起点位置", "终点位置", "道路等级", "通行宽度", "最近巡检日", "采集序号", "结论来源", "封闭原因"]
 const actions = ["安排巡检", "登记施工", "封闭道路"]
 const statuses = ["正常通行", "需维护", "正在施工", "禁止通行"]
 const stats = [{"label": "道路总里程", "value": 0}, {"label": "需维护段数", "value": 0}, {"label": "施工段数", "value": 0}]
@@ -114,7 +114,19 @@ function openCreate() {
 
 function runAction(action: string, row: EntryRow) {
   errorMessage.value = ''
-  const result = applyAction(meta.key, Number(row.id), action)
+  let reason = ''
+  if (action === '封闭道路') {
+    const input = window.prompt('请填写封闭原因（将写入通行历史，长期保留）')
+    if (input === null) {
+      return
+    }
+    reason = input
+  }
+  // 带上页面当前看到的「版本号」提交：若期间已有别的提交生效，本次会被拒绝。
+  const result = applyAction(meta.key, Number(row.id), action, {
+    expectedRevision: Number(row['版本号'] ?? 1),
+    reason,
+  })
   if (!result.ok) {
     errorMessage.value = result.message
     return
