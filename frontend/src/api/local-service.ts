@@ -1,9 +1,20 @@
 import { MODULE_BY_KEY } from '@/data/modules'
 import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
 import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
+import { migrateRoadArchive, submitRoadConclusion } from '@/api/road-archive'
+
+// 林区道路的通行历史与档案信息也从这里进出，页面不直接碰数据层。
+export { roadArchiveInfo, roadHistory } from '@/api/road-archive'
 
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
 const NEGATIVE_ACTIONS = ['撤销', '作废', '拒绝', '驳回', '停用', '忽略', '下线', '回滚']
+
+// 林区道路档案已迁到新版本：读写 forestroad 之前先确保迁移完成（已迁移则是空操作）。
+function prepare(key: string): void {
+  if (key === 'forestroad') {
+    migrateRoadArchive()
+  }
+}
 
 export function moduleMeta(key: string): ModuleMeta {
   const meta = MODULE_BY_KEY.get(key)
@@ -24,11 +35,16 @@ export function filterRows(rows: EntryRow[], filters: Record<string, string>): E
 }
 
 export function listEntries(key: string, filters: Record<string, string> = {}): PageResult {
+  prepare(key)
   const matched = filterRows(listRows(key), filters)
   return { items: matched, total: matched.length, page: 1, size: matched.length }
 }
 
 export function runAction(key: string, id: number, action: string): ActionResult {
+  if (key === 'forestroad') {
+    // 林区道路的通行结论统一走通行规则入口，需要携带结论版本做并发校验。
+    return { ok: false, message: '林区道路通行结论请通过通行规则入口提交（需携带结论版本）' }
+  }
   const meta = moduleMeta(key)
   const target = meta.actionTargets[action]
   if (!target) {
@@ -56,12 +72,23 @@ export function runAction(key: string, id: number, action: string): ActionResult
   return { ok: true, message: `${meta.entity}已${action}，当前状态「${target}」` }
 }
 
+// 林区道路专用入口：按共用通行规则提交结论，expectedVersion 是页面读出时的结论版本。
+export function runRoadAction(
+  id: number,
+  action: string,
+  expectedVersion: number,
+  reason = '',
+): ActionResult {
+  return submitRoadConclusion(id, action, expectedVersion, reason)
+}
+
 export function resetModule(key: string): PageResult {
   resetRows(key)
   return listEntries(key)
 }
 
 export function exportEntries(key: string): { filename: string; content: string } {
+  prepare(key)
   const meta = moduleMeta(key)
   const header = ['编号', ...meta.fields, '当前状态']
   const lines = [header.join(',')]

@@ -14,7 +14,8 @@
 ├── frontend/                 Vue 3 + Vite + TypeScript 前端（唯一运行单元）
 │   ├── src/views/            每个业务模块一个页面
 │   ├── src/api/local-service.ts   本地数据服务：列表、筛选、动作流转、导出
-│   ├── src/data/             模块元数据 / 示例数据 / localStorage 持久化
+│   ├── src/api/road-archive.ts    林区道路档案：迁移、结论提交（并发校验）、巡护路线重算
+│   ├── src/data/             模块元数据 / 示例数据 / 共用通行规则 / localStorage 持久化
 │   ├── src/stores/           会话与筛选状态
 │   └── vite.config.ts        dev server 配置（open: false，无 /api 代理）
 ├── .gitignore
@@ -68,4 +69,11 @@ npm run build
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
   `frontend/src/data/seed.ts`。
 - 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
+- 林区道路的巡检、施工、人工封闭共用一份通行规则（`frontend/src/data/passage-rule.ts`）：
+  冲突时先比严格程度（禁止通行 > 正在施工 > 需维护 > 正常通行），同级再比来源
+  （人工封闭 > 施工 > 巡检 > 迁移回填），即施工优先于巡检、人工封闭冲突取更严格的结论。
+- 林区道路档案已从旧字段迁到新版本（`frontend/src/api/road-archive.ts`）：旧档案整体留
+  快照、不做覆盖改写；存量道路按采集顺序回填采集序号；历史封闭原因与通行状态以追加式
+  结论历史保存。提交结论需携带结论版本，同一道路并发提交只有一份生效。迁移或结论变化后，
+  巡护任务的巡护路线会跟着重算（受阻路段标「需绕开」）。
 - 想回到初始数据：清掉浏览器里 `forest-fire-patrol:entries` 这一项，或调用 `resetModule(模块)`。

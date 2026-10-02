@@ -3,13 +3,17 @@
     <header class="page-head">
       <div>
         <h2>林区道路管理</h2>
-        <p class="page-desc">维护林区道路，围绕道路编号、道路名称、起点位置、终点位置做登记、筛选与状态流转。</p>
+        <p class="page-desc">维护林区道路，围绕道路编号、道路名称、起点位置、终点位置做登记、筛选与状态流转；通行结论按共用通行规则判定并留存历史。</p>
       </div>
       <div class="page-actions">
         <button class="btn primary" type="button" @click="openCreate">登记林区道路</button>
         <button class="btn" type="button" @click="exportRows">导出林区道路清单</button>
       </div>
     </header>
+
+    <p v-if="archiveInfo.legacyCount > 0" class="archive-note">
+      旧版档案已留存快照（{{ archiveInfo.legacyCount }} 条），当前为新版档案；历史封闭原因与通行状态见每行的「通行历史」。
+    </p>
 
     <div class="stat-row">
       <article v-for="item in stats" :key="item.label" class="stat-card">
@@ -55,6 +59,7 @@
             >
               {{ action }}
             </button>
+            <button class="link" type="button" @click="openHistory(row)">通行历史</button>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -63,8 +68,38 @@
       </tbody>
     </table>
 
+    <section v-if="historyRoad" class="history-panel">
+      <header class="history-head">
+        <strong>通行历史：{{ historyRoad['道路名称'] }}（{{ historyRoad['道路编号'] }}）</strong>
+        <button class="link" type="button" @click="closeHistory">收起</button>
+      </header>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>版本</th>
+            <th>来源</th>
+            <th>结论</th>
+            <th>封闭原因</th>
+            <th>记录时间</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="record in historyRecords" :key="record.版本">
+            <td>{{ record.版本 }}</td>
+            <td>{{ record.来源 }}</td>
+            <td>{{ record.结论 }}</td>
+            <td>{{ record.封闭原因 || '—' }}</td>
+            <td>{{ record.记录时间 }}</td>
+            <td>{{ record.说明 }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
     <footer class="page-foot">
       <span>共 {{ total }} 条林区道路记录</span>
+      <span v-if="infoMessage" class="info-text">{{ infoMessage }}</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
   </section>
@@ -77,12 +112,15 @@ import {
   downloadEntries,
   listEntries,
   moduleMeta,
-  runAction as applyAction,
+  roadArchiveInfo,
+  roadHistory,
+  runRoadAction,
 } from '@/api/local-service'
+import type { PassageRecord } from '@/data/passage-rule'
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('forestroad')
-const columns = ["道路编号", "道路名称", "起点位置", "终点位置", "道路等级", "通行宽度", "最近巡检日", "通行状态"]
+const columns = ["道路编号", "道路名称", "起点位置", "终点位置", "道路等级", "通行宽度", "最近巡检日", "采集序号", "封闭原因", "结论来源"]
 const actions = ["安排巡检", "登记施工", "封闭道路"]
 const statuses = ["正常通行", "需维护", "正在施工", "禁止通行"]
 const stats = [{"label": "道路总里程", "value": 0}, {"label": "需维护段数", "value": 0}, {"label": "施工段数", "value": 0}]
@@ -90,8 +128,12 @@ const stats = [{"label": "道路总里程", "value": 0}, {"label": "需维护段
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
+const infoMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+const archiveInfo = ref({ migrated: false, legacyCount: 0 })
+const historyRoad = ref<EntryRow | null>(null)
+const historyRecords = ref<PassageRecord[]>([])
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
@@ -114,12 +156,33 @@ function openCreate() {
 
 function runAction(action: string, row: EntryRow) {
   errorMessage.value = ''
-  const result = applyAction(meta.key, Number(row.id), action)
+  infoMessage.value = ''
+  let reason = ''
+  if (action === '封闭道路') {
+    const input = window.prompt('请填写封闭原因（会随结论一起落档留存）', String(row['封闭原因'] ?? ''))
+    if (input === null) {
+      return
+    }
+    reason = input
+  }
+  // 提交时带上页面读出时的结论版本：同一道路并发提交，只有版本对得上的那份生效。
+  const result = runRoadAction(Number(row.id), action, Number(row['结论版本'] ?? 0), reason)
   if (!result.ok) {
     errorMessage.value = result.message
     return
   }
+  infoMessage.value = result.message
   reload()
+}
+
+function openHistory(row: EntryRow) {
+  historyRoad.value = row
+  historyRecords.value = roadHistory(Number(row.id))
+}
+
+function closeHistory() {
+  historyRoad.value = null
+  historyRecords.value = []
 }
 
 function reload() {
@@ -128,6 +191,10 @@ function reload() {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    archiveInfo.value = roadArchiveInfo()
+    if (historyRoad.value) {
+      historyRecords.value = roadHistory(Number(historyRoad.value.id))
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '林区道路列表读取失败'
   }
